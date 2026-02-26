@@ -10,12 +10,11 @@ import {
   Search, 
   ChevronRight,
   ShieldCheck,
-  Github,
   CheckCircle2
 } from 'lucide-react';
 import { listAllFlags } from '@/lib/optimizely';
 import { getAllGovernanceData, getSettings, updateGovernanceData } from '@/lib/firebase';
-import { getViolations, getHealthScore, isValidName } from '@/utils/naming';
+import { getViolations, getHealthScore, isValidName, daysSince } from '@/utils/naming';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { HealthGauge } from '@/components/dashboard/HealthGauge';
 import { BarChart } from '@/components/dashboard/BarChart';
