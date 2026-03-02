@@ -1,19 +1,21 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  BarChart3, 
-  Flag, 
-  AlertTriangle, 
-  PlusCircle, 
-  RefreshCw, 
-  Search, 
+import React, { useState, useMemo } from 'react';
+import Link from 'next/link';
+import {
+  BarChart3,
+  Flag,
+  AlertTriangle,
+  PlusCircle,
+  RefreshCw,
+  Search,
   ChevronRight,
   ShieldCheck,
-  CheckCircle2
+  CheckCircle2,
+  WifiOff,
+  Users,
 } from 'lucide-react';
-import { listAllFlags } from '@/lib/optimizely';
-import { getAllGovernanceData, getSettings, updateGovernanceData } from '@/lib/firebase';
+import { useMergedFlags, useSettings, useUsers, useUpdateGovernance } from '@/hooks/useFlags';
 import { getViolations, getHealthScore, isValidName, daysSince } from '@/utils/naming';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { HealthGauge } from '@/components/dashboard/HealthGauge';
@@ -23,11 +25,11 @@ import { EnvDots } from '@/components/shared/EnvDots';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   DialogDescription,
   DialogFooter
 } from '@/components/ui/dialog';
@@ -38,131 +40,84 @@ import { toast } from '@/hooks/use-toast';
 import { Toaster } from '@/components/ui/toaster';
 
 export default function FlagOps() {
-  const [flags, setFlags] = useState<any[]>([]);
-  const [settings, setSettings] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [lastSync, setLastSync] = useState<Date | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  // ── Data via React Query ───────────────────────────────────────────────────
+  const {
+    flags,
+    isLoading,
+    isError,
+    error,
+    isUnconfigured,
+    lastSync,
+    refetch,
+    isFetching,
+  } = useMergedFlags();
+
+  const { data: settings } = useSettings();
+  const { data: users = [] } = useUsers();
+  const updateGovernance = useUpdateGovernance();
+
+  // ── Local UI state ─────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedFlag, setSelectedFlag] = useState<any>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [editTeam, setEditTeam] = useState('');
+  const [editOwner, setEditOwner] = useState('');
+  const [editNotes, setEditNotes] = useState('');
 
-  // Detail Dialog State
-  const [editTeam, setEditTeam] = useState("");
-  const [editOwner, setEditOwner] = useState("");
-  const [editNotes, setEditNotes] = useState("");
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [optFlags, govData, siteSettings] = await Promise.all([
-        listAllFlags(),
-        getAllGovernanceData(),
-        getSettings()
-      ]);
-
-      const merged = optFlags.map((flag: any) => ({
-        ...flag,
-        owner: govData[flag.key]?.owner || null,
-        ownerEmail: govData[flag.key]?.ownerEmail || null,
-        team: govData[flag.key]?.team || null,
-        notes: govData[flag.key]?.notes || "",
-        hasGovernance: !!govData[flag.key],
-      }));
-
-      setFlags(merged);
-      setSettings(siteSettings);
-      setLastSync(new Date());
-    } catch (error) {
-      console.error("Fetch failed", error);
-      toast({
-        title: "Data Refresh Failed",
-        description: "Could not connect to Optimizely or Firebase.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-      setIsSyncing(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const handleSync = () => {
-    setIsSyncing(true);
-    fetchData();
-  };
+  // ── Handlers ───────────────────────────────────────────────────────────────
+  const handleSync = () => refetch();
 
   const handleSaveGovernance = async () => {
     if (!selectedFlag) return;
-    
-    const updatedData = {
-      team: editTeam,
-      owner: editOwner,
-      notes: editNotes,
-    };
+    const data = { team: editTeam, owner: editOwner, notes: editNotes };
 
-    await updateGovernanceData(selectedFlag.key, updatedData);
-    
-    setFlags(flags.map(f => f.key === selectedFlag.key ? {
-      ...f,
-      ...updatedData,
-      hasGovernance: true
-    } : f));
-
-    toast({
-      title: "Governance Updated",
-      description: `Settings saved for ${selectedFlag.key}.`,
-    });
-    setSelectedFlag(null);
+    updateGovernance.mutate(
+      { flagKey: selectedFlag.key, data },
+      {
+        onSuccess: () => {
+          toast({ title: 'Governance Updated', description: `Settings saved for ${selectedFlag.key}.` });
+          setSelectedFlag(null);
+        },
+        onError: () => {
+          toast({ title: 'Save Failed', description: 'Could not write to Firestore.', variant: 'destructive' });
+        },
+      }
+    );
   };
 
-  const filteredFlags = useMemo(() => {
-    return flags.filter(f => 
+  // ── Derived data ───────────────────────────────────────────────────────────
+  const filteredFlags = useMemo(() =>
+    flags.filter(f =>
       f.key.toLowerCase().includes(searchQuery.toLowerCase()) ||
       f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (f.team && f.team.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
-  }, [flags, searchQuery]);
+    ),
+    [flags, searchQuery]
+  );
 
-  const stats = useMemo(() => {
-    const total = flags.length;
-    const namingViolations = flags.filter(f => !isValidName(f.key)).length;
-    const noOwner = flags.filter(f => !f.owner).length;
-    const stale = flags.filter(f => {
-      const diff = Date.now() - new Date(f.updated_time).getTime();
-      return diff > (90 * 86400000);
-    }).length;
-    const health = getHealthScore(flags);
-
-    return { total, namingViolations, noOwner, stale, health };
-  }, [flags]);
+  const stats = useMemo(() => ({
+    total: flags.length,
+    namingViolations: flags.filter(f => !isValidName(f.key)).length,
+    noOwner: flags.filter(f => !f.owner).length,
+    stale: flags.filter(f => daysSince(f.updated_time) > 90).length,
+    health: getHealthScore(flags),
+  }), [flags]);
 
   const teamsData = useMemo(() => {
     if (!settings?.teams) return [];
-    return settings.teams.map((t: string) => ({
-      label: t,
-      value: flags.filter(f => f.team === t).length
-    })).sort((a: any, b: any) => b.value - a.value);
+    return settings.teams
+      .map((t: string) => ({ label: t, value: flags.filter(f => f.team === t).length }))
+      .sort((a: any, b: any) => b.value - a.value);
   }, [flags, settings]);
 
-  const violationStats = useMemo(() => {
-    const counts = {
-      naming: flags.filter(f => !isValidName(f.key)).length,
-      owner: flags.filter(f => !f.owner).length,
-      team: flags.filter(f => !f.team).length,
-      stale: flags.filter(f => (Date.now() - new Date(f.updated_time).getTime()) > (90 * 86400000)).length,
-    };
-    return [
-      { label: 'Naming', value: counts.naming, color: '#ff6b6b' },
-      { label: 'No Owner', value: counts.owner, color: '#f0c040' },
-      { label: 'No Team', value: counts.team, color: '#60a0ff' },
-      { label: 'Stale', value: counts.stale, color: '#b080ff' },
-    ];
-  }, [flags]);
+  const violationStats = useMemo(() => [
+    { label: 'Naming',   value: flags.filter(f => !isValidName(f.key)).length,                                         color: '#ff6b6b' },
+    { label: 'No Owner', value: flags.filter(f => !f.owner).length,                                                    color: '#f0c040' },
+    { label: 'No Team',  value: flags.filter(f => !f.team).length,                                                     color: '#60a0ff' },
+    { label: 'Stale',    value: flags.filter(f => daysSince(f.updated_time) > 90).length,                              color: '#b080ff' },
+  ], [flags]);
 
-  if (loading && !flags.length) {
+  // ── Loading state ──────────────────────────────────────────────────────────
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
         <div className="flex flex-col items-center gap-4">
@@ -173,10 +128,26 @@ export default function FlagOps() {
     );
   }
 
+  // ── Unconfigured / error banner ────────────────────────────────────────────
+  const ErrorBanner = isUnconfigured ? (
+    <div className="flex items-center gap-3 px-4 py-3 mb-8 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+      <WifiOff className="w-4 h-4 shrink-0" />
+      <span>
+        <strong>Optimizely not connected.</strong> Add <code className="text-xs bg-destructive/10 px-1 rounded">OPTIMIZELY_API_TOKEN</code> and{' '}
+        <code className="text-xs bg-destructive/10 px-1 rounded">OPTIMIZELY_PROJECT_ID</code> to <code className="text-xs bg-destructive/10 px-1 rounded">.env.local</code> and restart the dev server.
+      </span>
+    </div>
+  ) : isError ? (
+    <div className="flex items-center gap-3 px-4 py-3 mb-8 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+      <AlertTriangle className="w-4 h-4 shrink-0" />
+      <span><strong>API Error:</strong> {(error as Error)?.message}</span>
+    </div>
+  ) : null;
+
   return (
     <div className="min-h-screen pb-20">
       <Toaster />
-      
+
       {/* Header */}
       <header className="sticky top-0 z-50 glass border-b border-border px-8 h-20 flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -190,51 +161,51 @@ export default function FlagOps() {
         </div>
 
         <div className="flex items-center gap-6">
+          <Link href="/users">
+            <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground font-bold text-xs uppercase tracking-widest">
+              <Users className="w-3.5 h-3.5 mr-2" />
+              Users {users.length > 0 && <span className="ml-1 font-code">({users.length})</span>}
+            </Button>
+          </Link>
           <div className="text-right">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground leading-none">Last Sync</p>
             <p className="text-xs font-medium text-foreground mt-1">
-              {lastSync ? lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Never"}
+              {lastSync ? lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}
             </p>
           </div>
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleSync}
-            disabled={isSyncing}
+            disabled={isFetching}
             className="rounded-full border-border/20 bg-white/5 hover:bg-white/10"
           >
-            <RefreshCw className={`w-3.5 h-3.5 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
             Sync Now
           </Button>
         </div>
       </header>
 
       <main className="max-w-[1400px] mx-auto px-8 mt-10">
+        {ErrorBanner}
+
         <Tabs defaultValue="overview" className="space-y-10">
           <div className="flex justify-center">
             <TabsList className="glass rounded-full p-1 border-border/20 h-12 shadow-xl shadow-black/20">
-              <TabsTrigger value="overview" className="rounded-full px-8 data-[state=active]:bg-primary data-[state=active]:text-white transition-all font-bold text-xs uppercase tracking-widest">
-                Overview
-              </TabsTrigger>
-              <TabsTrigger value="flags" className="rounded-full px-8 data-[state=active]:bg-primary data-[state=active]:text-white transition-all font-bold text-xs uppercase tracking-widest">
-                All Flags
-              </TabsTrigger>
-              <TabsTrigger value="violations" className="rounded-full px-8 data-[state=active]:bg-primary data-[state=active]:text-white transition-all font-bold text-xs uppercase tracking-widest">
-                Violations
-              </TabsTrigger>
-              <TabsTrigger value="create" className="rounded-full px-8 data-[state=active]:bg-primary data-[state=active]:text-white transition-all font-bold text-xs uppercase tracking-widest">
-                Create
-              </TabsTrigger>
+              <TabsTrigger value="overview"   className="rounded-full px-8 data-[state=active]:bg-primary data-[state=active]:text-white transition-all font-bold text-xs uppercase tracking-widest">Overview</TabsTrigger>
+              <TabsTrigger value="flags"      className="rounded-full px-8 data-[state=active]:bg-primary data-[state=active]:text-white transition-all font-bold text-xs uppercase tracking-widest">All Flags</TabsTrigger>
+              <TabsTrigger value="violations" className="rounded-full px-8 data-[state=active]:bg-primary data-[state=active]:text-white transition-all font-bold text-xs uppercase tracking-widest">Violations</TabsTrigger>
+              <TabsTrigger value="create"     className="rounded-full px-8 data-[state=active]:bg-primary data-[state=active]:text-white transition-all font-bold text-xs uppercase tracking-widest">Create</TabsTrigger>
             </TabsList>
           </div>
 
-          {/* Overview Tab */}
+          {/* ── Overview ──────────────────────────────────────────────────── */}
           <TabsContent value="overview" className="space-y-8 mt-12 outline-none">
             <div className="grid grid-cols-4 gap-6">
-              <StatCard label="Total Flags" value={stats.total} sub="Active in Project" icon={<Flag className="w-3 h-3" />} accent="#60a0ff" delay={0} />
-              <StatCard label="Naming Violations" value={stats.namingViolations} sub="Non-compliant keys" icon={<AlertTriangle className="w-3 h-3" />} accent="#ff6b6b" delay={100} />
-              <StatCard label="Missing Owner" value={stats.noOwner} sub="Orphaned resources" icon={<PlusCircle className="w-3 h-3" />} accent="#f0c040" delay={200} />
-              <StatCard label="Stale Flags" value={stats.stale} sub="Unchanged > 90d" icon={<RefreshCw className="w-3 h-3" />} accent="#b080ff" delay={300} />
+              <StatCard label="Total Flags"       value={stats.total}           sub="Active in Project"    icon={<Flag className="w-3 h-3" />}          accent="#60a0ff" delay={0}   />
+              <StatCard label="Naming Violations" value={stats.namingViolations} sub="Non-compliant keys"   icon={<AlertTriangle className="w-3 h-3" />}  accent="#ff6b6b" delay={100} />
+              <StatCard label="Missing Owner"     value={stats.noOwner}         sub="Orphaned resources"   icon={<PlusCircle className="w-3 h-3" />}     accent="#f0c040" delay={200} />
+              <StatCard label="Stale Flags"       value={stats.stale}           sub="Unchanged > 90d"      icon={<RefreshCw className="w-3 h-3" />}      accent="#b080ff" delay={300} />
             </div>
 
             <div className="grid grid-cols-12 gap-8 mt-12">
@@ -245,7 +216,7 @@ export default function FlagOps() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-muted-foreground">Pattern</span>
-                      <code className="bg-primary/10 text-primary px-2 py-1 rounded font-code">{"{team}_{feat}_{info}"}</code>
+                      <code className="bg-primary/10 text-primary px-2 py-1 rounded font-code">{'{team}_{feat}_{info}'}</code>
                     </div>
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-muted-foreground">Valid</span>
@@ -278,17 +249,17 @@ export default function FlagOps() {
             </div>
           </TabsContent>
 
-          {/* All Flags Tab */}
+          {/* ── All Flags ─────────────────────────────────────────────────── */}
           <TabsContent value="flags" className="outline-none">
             <div className="glass rounded-2xl p-6 border-border/20 shadow-2xl overflow-hidden">
               <div className="flex items-center justify-between mb-8">
                 <div className="relative w-96">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input 
-                    placeholder="Search flags by key, name, or team..." 
+                  <Input
+                    placeholder="Search flags by key, name, or team..."
                     className="pl-10 h-10 rounded-full border-border/20 bg-white/5 focus-visible:ring-primary"
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={e => setSearchQuery(e.target.value)}
                   />
                 </div>
                 <div className="flex gap-4">
@@ -303,6 +274,7 @@ export default function FlagOps() {
                     <TableRow className="border-border/10 hover:bg-transparent">
                       <TableHead className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest h-14">Flag Key</TableHead>
                       <TableHead className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest h-14">Team / Owner</TableHead>
+                      <TableHead className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest h-14">Created By</TableHead>
                       <TableHead className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest h-14">Environments</TableHead>
                       <TableHead className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest h-14">Last Modified</TableHead>
                       <TableHead className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest h-14">Status</TableHead>
@@ -313,16 +285,15 @@ export default function FlagOps() {
                     {filteredFlags.map(flag => {
                       const violations = getViolations(flag);
                       const isStale = daysSince(flag.updated_time) > 90;
-                      
                       return (
-                        <TableRow 
-                          key={flag.key} 
+                        <TableRow
+                          key={flag.key}
                           className="border-border/5 hover:bg-white/[0.03] transition-colors cursor-pointer group"
                           onClick={() => {
                             setSelectedFlag(flag);
-                            setEditTeam(flag.team || "");
-                            setEditOwner(flag.owner || "");
-                            setEditNotes(flag.notes || "");
+                            setEditTeam(flag.team || '');
+                            setEditOwner(flag.owner || '');
+                            setEditNotes(flag.notes || '');
                           }}
                         >
                           <TableCell className="py-5">
@@ -333,15 +304,18 @@ export default function FlagOps() {
                             {flag.team ? (
                               <div className="flex flex-col">
                                 <span className="text-sm font-bold text-foreground/80">{flag.team}</span>
-                                <span className="text-xs text-muted-foreground">{flag.owner || "Unassigned"}</span>
+                                <span className="text-xs text-muted-foreground">{flag.owner || 'Unassigned'}</span>
                               </div>
                             ) : (
                               <Badge color="red">No Governance</Badge>
                             )}
                           </TableCell>
                           <TableCell>
-                            <EnvDots environments={flag.environments} />
+                            <div className="text-xs font-medium text-foreground/70 truncate max-w-[180px]">
+                              {flag.created_by_user_email || <span className="text-muted-foreground">—</span>}
+                            </div>
                           </TableCell>
+                          <TableCell><EnvDots environments={flag.environments} /></TableCell>
                           <TableCell>
                             <div className="text-xs font-medium text-foreground/70">
                               {new Date(flag.updated_time).toLocaleDateString()}
@@ -369,10 +343,9 @@ export default function FlagOps() {
             </div>
           </TabsContent>
 
-          {/* Violations Tab */}
+          {/* ── Violations ────────────────────────────────────────────────── */}
           <TabsContent value="violations" className="space-y-8 outline-none">
             <div className="grid grid-cols-2 gap-8">
-              {/* Naming Violations */}
               <div className="glass rounded-2xl p-8 border-border/20 shadow-2xl">
                 <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-8 flex items-center gap-2">
                   <AlertTriangle className="w-3 h-3 text-destructive" /> Naming Convention Failures
@@ -383,16 +356,20 @@ export default function FlagOps() {
                       <div className="flex justify-between items-start">
                         <div>
                           <div className="text-sm font-code text-destructive font-bold">{f.key}</div>
-                          <div className="text-xs text-muted-foreground mt-1">Found in Project: {f.project_id || "Main"}</div>
+                          <div className="text-xs text-muted-foreground mt-1">Project: {f.project_id || '—'}</div>
                         </div>
                         <Badge color="red">Rename Needed</Badge>
                       </div>
                     </div>
                   ))}
+                  {flags.filter(f => !isValidName(f.key)).length === 0 && (
+                    <div className="flex items-center gap-2 text-success text-sm">
+                      <CheckCircle2 className="w-4 h-4" /> All flag keys follow the naming convention.
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Stale Flags */}
               <div className="glass rounded-2xl p-8 border-border/20 shadow-2xl">
                 <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-8 flex items-center gap-2">
                   <RefreshCw className="w-3 h-3 text-secondary" /> Stale (Inactive &gt; 90d)
@@ -409,12 +386,17 @@ export default function FlagOps() {
                       </div>
                     </div>
                   ))}
+                  {flags.filter(f => daysSince(f.updated_time) > 90).length === 0 && (
+                    <div className="flex items-center gap-2 text-success text-sm">
+                      <CheckCircle2 className="w-4 h-4" /> No stale flags detected.
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           </TabsContent>
 
-          {/* Create Tab */}
+          {/* ── Create (Phase 2 preview) ───────────────────────────────────── */}
           <TabsContent value="create" className="outline-none">
             <div className="max-w-2xl mx-auto glass rounded-2xl p-10 border-border/20 shadow-2xl relative overflow-hidden">
               <div className="absolute inset-0 bg-background/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center p-8 text-center">
@@ -425,9 +407,8 @@ export default function FlagOps() {
                 <p className="text-muted-foreground mb-8 max-w-md">
                   Creation with enforced naming conventions and automated governance will be available in Phase 2.
                 </p>
-                <Badge color="blue" className="px-6 py-2 rounded-full">Coming Soon</Badge>
+                <Badge color="blue">Coming Soon</Badge>
               </div>
-
               <div className="space-y-6 opacity-30 grayscale pointer-events-none">
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
@@ -456,7 +437,7 @@ export default function FlagOps() {
         </Tabs>
       </main>
 
-      {/* Flag Detail Modal */}
+      {/* ── Flag Detail Modal ──────────────────────────────────────────────── */}
       <Dialog open={!!selectedFlag} onOpenChange={() => setSelectedFlag(null)}>
         <DialogContent className="sm:max-w-[600px] glass border-border/40 text-foreground p-0 overflow-hidden rounded-2xl">
           <div className="bg-gradient-to-br from-primary/20 to-secondary/20 p-8 border-b border-border/20">
@@ -465,12 +446,12 @@ export default function FlagOps() {
                 <DialogTitle className="text-2xl font-bold font-code tracking-tight">{selectedFlag?.key}</DialogTitle>
                 <DialogDescription className="text-muted-foreground font-medium mt-1">{selectedFlag?.name}</DialogDescription>
               </div>
-              <Badge color={getViolations(selectedFlag || {}).length > 0 ? 'red' : 'green'}>
-                {getViolations(selectedFlag || {}).length > 0 ? 'Issues Detected' : 'Healthy'}
+              <Badge color={getViolations(selectedFlag ?? {}).length > 0 ? 'red' : 'green'}>
+                {getViolations(selectedFlag ?? {}).length > 0 ? 'Issues Detected' : 'Healthy'}
               </Badge>
             </div>
           </div>
-          
+
           <div className="p-8 space-y-8">
             <div className="grid grid-cols-2 gap-8">
               <div className="space-y-3">
@@ -493,8 +474,8 @@ export default function FlagOps() {
                     <SelectValue placeholder="Select Owner" />
                   </SelectTrigger>
                   <SelectContent>
-                    {settings?.owners?.map((o: any) => (
-                      <SelectItem key={o.email} value={o.name}>{o.name}</SelectItem>
+                    {users.map(u => (
+                      <SelectItem key={u.email} value={u.email}>{u.email}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -503,17 +484,17 @@ export default function FlagOps() {
 
             <div className="space-y-3">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground leading-none">Governance Notes</label>
-              <Textarea 
-                placeholder="Additional context or requirements..." 
+              <Textarea
+                placeholder="Additional context or requirements..."
                 className="bg-white/5 border-border/20 min-h-[100px]"
                 value={editNotes}
-                onChange={(e) => setEditNotes(e.target.value)}
+                onChange={e => setEditNotes(e.target.value)}
               />
             </div>
 
             <div className="pt-4 flex flex-col gap-3">
               <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Violations & Recommendations</h4>
-              {getViolations(selectedFlag || {}).map((v, i) => (
+              {getViolations(selectedFlag ?? {}).map((v, i) => (
                 <div key={i} className={`flex items-start gap-3 p-3 rounded-lg ${v.severity === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-warning/10 text-warning'}`}>
                   {v.severity === 'error' ? <AlertTriangle className="w-4 h-4 mt-0.5" /> : <RefreshCw className="w-4 h-4 mt-0.5" />}
                   <div>
@@ -522,7 +503,7 @@ export default function FlagOps() {
                   </div>
                 </div>
               ))}
-              {getViolations(selectedFlag || {}).length === 0 && (
+              {getViolations(selectedFlag ?? {}).length === 0 && (
                 <div className="flex items-start gap-3 p-3 rounded-lg bg-success/10 text-success">
                   <CheckCircle2 className="w-4 h-4 mt-0.5" />
                   <div className="text-xs font-bold leading-none">No violations detected. All governance standards met.</div>
@@ -533,7 +514,13 @@ export default function FlagOps() {
 
           <DialogFooter className="bg-white/5 p-6 border-t border-border/20 flex gap-4">
             <Button variant="ghost" onClick={() => setSelectedFlag(null)} className="rounded-full text-muted-foreground font-bold text-xs uppercase tracking-widest">Cancel</Button>
-            <Button onClick={handleSaveGovernance} className="rounded-full px-8 bg-primary hover:bg-primary/80 font-bold text-xs uppercase tracking-widest">Save Governance</Button>
+            <Button
+              onClick={handleSaveGovernance}
+              disabled={updateGovernance.isPending}
+              className="rounded-full px-8 bg-primary hover:bg-primary/80 font-bold text-xs uppercase tracking-widest"
+            >
+              {updateGovernance.isPending ? 'Saving...' : 'Save Governance'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

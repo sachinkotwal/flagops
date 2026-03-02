@@ -1,36 +1,83 @@
-const FLAGS_API = "https://api.optimizely.com/flags/v1";
+// Calls the Optimizely REST API directly from the browser.
+// Requires NEXT_PUBLIC_ prefixed env vars so they are available client-side.
+
+const FLAGS_API =
+  process.env.NEXT_PUBLIC_OPTIMIZELY_FLAGS_API_URL ?? 'https://api.optimizely.com/flags/v1';
 const TOKEN = process.env.NEXT_PUBLIC_OPTIMIZELY_API_TOKEN;
 const PROJECT_ID = process.env.NEXT_PUBLIC_OPTIMIZELY_PROJECT_ID;
 
-const MOCK_FLAGS = [
-  { id: "1", key: "platform_dark_mode", name: "Dark Mode Toggle", description: "Enable dark mode for all users", updated_time: new Date(Date.now() - 5 * 86400000).toISOString(), created_time: new Date(Date.now() - 30 * 86400000).toISOString(), archived: false, environments: { production: { enabled: true }, staging: { enabled: true }, development: { enabled: true } } },
-  { id: "2", key: "growth_onboarding_v2", name: "Onboarding V2", description: "New user onboarding experience", updated_time: new Date(Date.now() - 2 * 86400000).toISOString(), created_time: new Date(Date.now() - 10 * 86400000).toISOString(), archived: false, environments: { production: { enabled: false }, staging: { enabled: true }, development: { enabled: true } } },
-  { id: "3", key: "NewCheckoutFlow", name: "New Checkout", description: "", updated_time: new Date(Date.now() - 15 * 86400000).toISOString(), created_time: new Date(Date.now() - 40 * 86400000).toISOString(), archived: false, environments: { production: { enabled: false }, staging: { enabled: false }, development: { enabled: true } } },
-  { id: "4", key: "search-ranking-boost", name: "Search Boost", description: "Boost ranking for premium results", updated_time: new Date(Date.now() - 120 * 86400000).toISOString(), created_time: new Date(Date.now() - 200 * 86400000).toISOString(), archived: false, environments: { production: { enabled: true }, staging: { enabled: true }, development: { enabled: true } } },
-  { id: "5", key: "mobile_push_notifications", name: "Push Notifications", description: "Enable push system", updated_time: new Date(Date.now() - 1 * 86400000).toISOString(), created_time: new Date(Date.now() - 90 * 86400000).toISOString(), archived: false, environments: { production: { enabled: true }, staging: { enabled: true }, development: { enabled: true } } },
-  { id: "6", key: "GrowthReferralProgram", name: "Referral Program", description: "", updated_time: new Date(Date.now() - 100 * 86400000).toISOString(), created_time: new Date(Date.now() - 150 * 86400000).toISOString(), archived: false, environments: { production: { enabled: false }, staging: { enabled: false }, development: { enabled: true } } },
-  { id: "7", key: "checkout_express_pay", name: "Express Payment", description: "One-click express pay", updated_time: new Date(Date.now() - 1 * 86400000).toISOString(), created_time: new Date(Date.now() - 20 * 86400000).toISOString(), archived: false, environments: { production: { enabled: true }, staging: { enabled: true }, development: { enabled: true } } },
-  { id: "8", key: "temp_holiday_banner", name: "Holiday Banner", description: "Seasonal banner", updated_time: new Date(Date.now() - 180 * 86400000).toISOString(), created_time: new Date(Date.now() - 190 * 86400000).toISOString(), archived: false, environments: { production: { enabled: false }, staging: { enabled: false }, development: { enabled: false } } },
-];
+export interface OptimizelyEnvironment {
+  key: string;
+  name: string;
+  enabled: boolean;
+  has_restricted_permissions: boolean;
+  priority: number;
+  status: string;
+  id: number;
+  created_time: string;
+}
 
-export async function listAllFlags() {
-  if (!TOKEN || !PROJECT_ID) {
-    console.warn("Optimizely API credentials missing, using mock data.");
-    return MOCK_FLAGS;
+export interface OptimizelyFlag {
+  id: number;
+  key: string;
+  name: string;
+  description: string;
+  archived: boolean;
+  project_id: number;
+  created_time: string;
+  updated_time: string;
+  revision: number;
+  created_by_user_id: string;
+  created_by_user_email: string;
+  environments: Record<string, OptimizelyEnvironment>;
+  variable_definitions: Record<string, unknown>;
+}
+
+export class OptimizelyUnconfiguredError extends Error {
+  constructor() {
+    super(
+      'Optimizely API credentials are not configured. Set NEXT_PUBLIC_OPTIMIZELY_API_TOKEN and NEXT_PUBLIC_OPTIMIZELY_PROJECT_ID in .env.local and restart the dev server.'
+    );
+    this.name = 'OptimizelyUnconfiguredError';
+  }
+}
+
+interface FlagsPageResponse {
+  items: OptimizelyFlag[];
+  next_url: string[] | null;
+  total_count: number;
+}
+
+async function fetchFlagsPage(url: string): Promise<FlagsPageResponse> {
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || body.message || `Optimizely API error: ${res.status}`);
   }
 
-  try {
-    const res = await fetch(`${FLAGS_API}/projects/${PROJECT_ID}/flags`, {
-      headers: {
-        Authorization: `Bearer ${TOKEN}`,
-        Accept: "application/json",
-      }
-    });
-    if (!res.ok) throw new Error(`Optimizely API error: ${res.status}`);
-    const data = await res.json();
-    return data.items || [];
-  } catch (error) {
-    console.error("Failed to fetch Optimizely flags", error);
-    return MOCK_FLAGS;
+  return res.json();
+}
+
+export async function listAllFlags(): Promise<OptimizelyFlag[]> {
+  if (!TOKEN || !PROJECT_ID) throw new OptimizelyUnconfiguredError();
+
+  const allFlags: OptimizelyFlag[] = [];
+  // next_url from the API is a relative path — prepend the base URL
+  let nextPath: string | null =
+    `/projects/${PROJECT_ID}/flags?per_page=500&sort=created_time%3Adesc&archived=false`;
+
+  while (nextPath) {
+    const data = await fetchFlagsPage(`${FLAGS_API}${nextPath}`);
+    allFlags.push(...(data.items ?? []));
+    // next_url is an array; empty array or missing means no more pages
+    nextPath = data.next_url?.length ? data.next_url[0] : null;
   }
+
+  return allFlags;
 }
