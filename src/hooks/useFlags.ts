@@ -3,6 +3,7 @@ import { useEffect, useMemo } from 'react';
 import { listAllFlags, OptimizelyUnconfiguredError } from '@/lib/optimizely';
 import {
   getAllGovernanceData,
+  getGovernanceRecord,
   updateGovernanceData,
   getSettings,
   getUsers,
@@ -10,6 +11,7 @@ import {
   upsertUsers,
   GovernanceManualFields,
 } from '@/lib/firebase';
+import { getFlag } from '@/lib/optimizely';
 
 const PROJECT_ID = process.env.NEXT_PUBLIC_OPTIMIZELY_PROJECT_ID!;
 
@@ -109,6 +111,32 @@ export function useMergedFlags() {
     lastSync: flagsQuery.dataUpdatedAt ? new Date(flagsQuery.dataUpdatedAt) : null,
     refetch: () => { flagsQuery.refetch(); govQuery.refetch(); },
     isFetching: flagsQuery.isFetching || govQuery.isFetching,
+  };
+}
+
+// ── Single flag detail ───────────────────────────────────────────────────────
+export function useFlagDetail(flagKey: string) {
+  const flagQuery = useQuery({
+    queryKey: ['flag', flagKey],
+    queryFn: () => getFlag(flagKey),
+    enabled: !!flagKey,
+  });
+
+  const govQuery = useQuery({
+    queryKey: [...QUERY_KEYS.governance, flagKey],
+    queryFn: () => getGovernanceRecord(PROJECT_ID, flagKey),
+    enabled: !!flagKey,
+    staleTime: 60 * 1000,
+  });
+
+  return {
+    flag: flagQuery.data,
+    governance: govQuery.data ?? null,
+    isLoading: flagQuery.isLoading || govQuery.isLoading,
+    isError: flagQuery.isError,
+    error: flagQuery.error,
+    refetch: () => { flagQuery.refetch(); govQuery.refetch(); },
+    isFetching: flagQuery.isFetching || govQuery.isFetching,
   };
 }
 

@@ -64,6 +64,15 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 // ── Governance ───────────────────────────────────────────────────────────────
 
+/** Read a single governance doc for a flag key. */
+export async function getGovernanceRecord(
+  projectId: string,
+  flagKey: string
+): Promise<GovernanceRecord | null> {
+  const snap = await getDoc(doc(db, 'projects', projectId, 'governance', flagKey));
+  return snap.exists() ? (snap.data() as GovernanceRecord) : null;
+}
+
 /** Read all governance docs for a project. Keyed by flag key. */
 export async function getAllGovernanceData(
   projectId: string

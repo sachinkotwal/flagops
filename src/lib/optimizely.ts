@@ -64,6 +64,22 @@ async function fetchFlagsPage(url: string): Promise<FlagsPageResponse> {
   return res.json();
 }
 
+export async function getFlag(flagKey: string): Promise<OptimizelyFlag> {
+  if (!TOKEN || !PROJECT_ID) throw new OptimizelyUnconfiguredError();
+
+  const res = await fetch(
+    `${FLAGS_API}/projects/${PROJECT_ID}/flags/${flagKey}`,
+    { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/json' } }
+  );
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || body.message || `Optimizely API error: ${res.status}`);
+  }
+
+  return res.json();
+}
+
 export async function listAllFlags(): Promise<OptimizelyFlag[]> {
   if (!TOKEN || !PROJECT_ID) throw new OptimizelyUnconfiguredError();
 

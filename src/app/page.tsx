@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
   BarChart3,
   Flag,
@@ -14,6 +15,7 @@ import {
   CheckCircle2,
   WifiOff,
   Users,
+  Download,
 } from 'lucide-react';
 import { useMergedFlags, useSettings, useUsers, useUpdateGovernance } from '@/hooks/useFlags';
 import { getViolations, getHealthScore, isValidName, daysSince } from '@/utils/naming';
@@ -38,8 +40,9 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/hooks/use-toast';
 import { Toaster } from '@/components/ui/toaster';
+import { exportFlagsToExcel } from '@/utils/exportExcel';
 
-export default function FlagOps() {
+function FlagOps() {
   // ── Data via React Query ───────────────────────────────────────────────────
   const {
     flags,
@@ -55,6 +58,12 @@ export default function FlagOps() {
   const { data: settings } = useSettings();
   const { data: users = [] } = useUsers();
   const updateGovernance = useUpdateGovernance();
+
+  // ── URL-driven tab state ───────────────────────────────────────────────────
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const activeTab = searchParams.get('tab') ?? 'overview';
+  const handleTabChange = (tab: string) => router.push(`/?tab=${tab}`, { scroll: false });
 
   // ── Local UI state ─────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
@@ -186,10 +195,10 @@ export default function FlagOps() {
         </div>
       </header>
 
-      <main className="max-w-[1400px] mx-auto px-8 mt-10">
+      <main className="w-full px-6 mt-10">
         {ErrorBanner}
 
-        <Tabs defaultValue="overview" className="space-y-10">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-10">
           <div className="flex justify-center">
             <TabsList className="glass rounded-full p-1 border-border/20 h-12 shadow-xl shadow-black/20">
               <TabsTrigger value="overview"   className="rounded-full px-8 data-[state=active]:bg-primary data-[state=active]:text-white transition-all font-bold text-xs uppercase tracking-widest">Overview</TabsTrigger>
@@ -262,9 +271,19 @@ export default function FlagOps() {
                     onChange={e => setSearchQuery(e.target.value)}
                   />
                 </div>
-                <div className="flex gap-4">
+                <div className="flex items-center gap-4">
                   <Badge color="blue">All: {flags.length}</Badge>
                   <Badge color="red">Issues: {flags.filter(f => getViolations(f).length > 0).length}</Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => exportFlagsToExcel(flags)}
+                    disabled={flags.length === 0}
+                    className="rounded-full border-border/20 bg-white/5 hover:bg-white/10 font-bold text-xs uppercase tracking-widest"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-2" />
+                    Export Excel
+                  </Button>
                 </div>
               </div>
 
@@ -331,8 +350,13 @@ export default function FlagOps() {
                               </Badge>
                             )}
                           </TableCell>
-                          <TableCell className="text-right pr-6">
-                            <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <TableCell className="text-right pr-4" onClick={e => e.stopPropagation()}>
+                            <Link href={`/flags/${flag.key}`}>
+                              <Button variant="ghost" size="sm"
+                                className="rounded-full h-7 px-3 text-[11px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground">
+                                Details <ChevronRight className="w-3 h-3 ml-1" />
+                              </Button>
+                            </Link>
                           </TableCell>
                         </TableRow>
                       );
@@ -525,5 +549,13 @@ export default function FlagOps() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function FlagOpsPage() {
+  return (
+    <Suspense>
+      <FlagOps />
+    </Suspense>
   );
 }
