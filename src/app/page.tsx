@@ -11,10 +11,8 @@ import {
   RefreshCw,
   Search,
   ChevronRight,
-  ShieldCheck,
   CheckCircle2,
   WifiOff,
-  Users,
   Download,
 } from 'lucide-react';
 import { useMergedFlags, useSettings, useUsers, useUpdateGovernance } from '@/hooks/useFlags';
@@ -22,6 +20,7 @@ import { getViolations, getHealthScore, isValidName, daysSince } from '@/utils/n
 import { StatCard } from '@/components/dashboard/StatCard';
 import { HealthGauge } from '@/components/dashboard/HealthGauge';
 import { BarChart } from '@/components/dashboard/BarChart';
+import { VerticalBarChart } from '@/components/dashboard/VerticalBarChart';
 import { Badge } from '@/components/shared/Badge';
 import { EnvDots } from '@/components/shared/EnvDots';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -125,6 +124,17 @@ function FlagOps() {
     { label: 'Stale',    value: flags.filter(f => daysSince(f.updated_time) > 90).length,                              color: '#b080ff' },
   ], [flags]);
 
+  const flagsByYearData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    flags.forEach(f => {
+      const year = new Date(f.created_time).getFullYear();
+      if (!isNaN(year)) counts[year] = (counts[year] || 0) + 1;
+    });
+    return Object.keys(counts)
+      .sort()
+      .map(year => ({ label: year, value: counts[year], color: 'linear-gradient(90deg, #34d399, #60a0ff)' }));
+  }, [flags]);
+
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoading) {
     return (
@@ -158,24 +168,8 @@ function FlagOps() {
       <Toaster />
 
       {/* Header */}
-      <header className="sticky top-0 z-50 glass border-b border-border px-8 h-20 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/20">
-            <ShieldCheck className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">FlagOps</h1>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground leading-none mt-0.5">Optimizely Governance</p>
-          </div>
-        </div>
-
+      <header className="sticky top-0 z-40 glass border-b border-border px-8 h-20 flex items-center justify-end">
         <div className="flex items-center gap-6">
-          <Link href="/users">
-            <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground hover:text-foreground font-bold text-xs uppercase tracking-widest">
-              <Users className="w-3.5 h-3.5 mr-2" />
-              Users {users.length > 0 && <span className="ml-1 font-code">({users.length})</span>}
-            </Button>
-          </Link>
           <div className="text-right">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground leading-none">Last Sync</p>
             <p className="text-xs font-medium text-foreground mt-1">
@@ -255,6 +249,17 @@ function FlagOps() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div className="glass rounded-2xl p-8 border-border/20 shadow-2xl">
+              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-8 flex items-center gap-2">
+                <BarChart3 className="w-3 h-3" /> Flags Created by Year
+              </h3>
+              {flagsByYearData.length > 0 ? (
+                <VerticalBarChart data={flagsByYearData} />
+              ) : (
+                <p className="text-sm text-muted-foreground">No creation date data available.</p>
+              )}
             </div>
           </TabsContent>
 

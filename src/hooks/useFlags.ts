@@ -6,6 +6,7 @@ import {
   getGovernanceRecord,
   updateGovernanceData,
   getSettings,
+  updateTeams,
   getUsers,
   syncFlagsToFirestore,
   upsertUsers,
@@ -138,6 +139,15 @@ export function useFlagDetail(flagKey: string) {
     refetch: () => { flagQuery.refetch(); govQuery.refetch(); },
     isFetching: flagQuery.isFetching || govQuery.isFetching,
   };
+}
+
+// ── Teams mutation ───────────────────────────────────────────────────────────
+export function useUpdateTeams() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (teams: string[]) => updateTeams(teams),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.settings }),
+  });
 }
 
 // ── Governance mutation ──────────────────────────────────────────────────────

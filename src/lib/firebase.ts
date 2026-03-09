@@ -58,7 +58,7 @@ export interface AppSettings {
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  teams: ['Platform', 'Growth', 'Checkout', 'Search', 'Mobile', 'Infra'],
+  teams: ['Acquisitions', 'Originations', 'Auto', 'CIA', 'Content', 'OAE', 'Payments', 'Platform', 'Shared'],
   staleDaysThreshold: 90,
 };
 
@@ -182,4 +182,8 @@ export async function getUsers(): Promise<UserRecord[]> {
 export async function getSettings(): Promise<AppSettings> {
   const snap = await getDoc(doc(db, 'settings', 'config'));
   return snap.exists() ? (snap.data() as AppSettings) : DEFAULT_SETTINGS;
+}
+
+export async function updateTeams(teams: string[]): Promise<void> {
+  await setDoc(doc(db, 'settings', 'config'), { teams }, { merge: true });
 }
