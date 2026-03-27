@@ -9,7 +9,12 @@
     "build": "NODE_ENV=production next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "infra:install": "npm install --prefix infrastructure",
+    "infra:bootstrap": "npm run infra:install && cd infrastructure && npx cdk bootstrap",
+    "infra:deploy": "npm run infra:install && cd infrastructure && npx cdk deploy --outputs-file ../cdk-outputs.json",
+    "infra:diff": "cd infrastructure && npx cdk diff",
+    "infra:destroy": "cd infrastructure && npx cdk destroy"
   },
   "dependencies": {
     "@genkit-ai/google-genai": "^1.28.0",
@@ -41,7 +46,9 @@
     "date-fns": "^3.6.0",
     "dotenv": "^16.5.0",
     "embla-carousel-react": "^8.6.0",
-    "firebase": "^11.9.1",
+    "@aws-sdk/client-dynamodb": "^3.782.0",
+    "@aws-sdk/lib-dynamodb": "^3.782.0",
+    "next-auth": "^5.0.0-beta.25",
     "genkit": "^1.28.0",
     "lucide-react": "^0.475.0",
     "next": "15.5.9",

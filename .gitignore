@@ -40,6 +40,8 @@ next-env.d.ts
 .genkit/*
 .env*
 
-# firebase
-firebase-debug.log
-firestore-debug.log
+# CDK
+infrastructure/node_modules
+infrastructure/dist
+infrastructure/cdk.out
+cdk-outputs.json

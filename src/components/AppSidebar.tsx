@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShieldCheck, LayoutDashboard, Users, Settings, Sun, Moon } from 'lucide-react';
+import { ShieldCheck, LayoutDashboard, Users, Settings, Sun, Moon, LogOut } from 'lucide-react';
 import { useTheme } from '@/providers/theme-provider';
+import { useSession, signOut } from 'next-auth/react';
 
 const navItems = [
   { href: '/',         label: 'Dashboard', icon: LayoutDashboard },
@@ -14,6 +15,10 @@ const navItems = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
+  const { data: session } = useSession();
+
+  const userEmail = session?.user?.email ?? '';
+  const userInitial = userEmail ? userEmail[0].toUpperCase() : '?';
 
   return (
     <aside className="fixed top-0 left-0 h-screen w-56 flex flex-col glass border-r border-border/20 z-50">
@@ -49,8 +54,9 @@ export function AppSidebar() {
         })}
       </nav>
 
-      {/* Theme toggle */}
-      <div className="px-3 pb-5 shrink-0">
+      {/* Bottom section: theme toggle + user + sign out */}
+      <div className="px-3 pb-5 space-y-1 shrink-0">
+        {/* Theme toggle */}
         <button
           onClick={toggleTheme}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 hover:text-foreground transition-all"
@@ -58,6 +64,25 @@ export function AppSidebar() {
           {theme === 'dark' ? <Sun className="w-4 h-4 shrink-0" /> : <Moon className="w-4 h-4 shrink-0" />}
           {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
         </button>
+
+        {/* User info + sign out */}
+        {userEmail && (
+          <div className="border-t border-border/10 pt-3 mt-1">
+            <div className="flex items-center gap-2 px-3 py-1.5 mb-1">
+              <div className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center shrink-0">
+                {userInitial}
+              </div>
+              <span className="text-xs text-muted-foreground truncate">{userEmail}</span>
+            </div>
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5 hover:text-foreground transition-all"
+            >
+              <LogOut className="w-4 h-4 shrink-0" />
+              Sign Out
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );

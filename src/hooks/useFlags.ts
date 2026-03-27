@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
+import { useSession } from 'next-auth/react';
 import { listAllFlags, OptimizelyUnconfiguredError } from '@/lib/optimizely';
 import {
   getAllGovernanceData,
@@ -8,10 +9,10 @@ import {
   getSettings,
   updateTeams,
   getUsers,
-  syncFlagsToFirestore,
+  syncFlagsToDynamoDB,
   upsertUsers,
   GovernanceManualFields,
-} from '@/lib/firebase';
+} from '@/lib/dynamodb';
 import { getFlag } from '@/lib/optimizely';
 
 const PROJECT_ID = process.env.NEXT_PUBLIC_OPTIMIZELY_PROJECT_ID!;
@@ -37,13 +38,13 @@ export function useOptimizelyFlags() {
     },
   });
 
-  // After a successful fetch: sync API data into Firestore and upsert user emails.
+  // After a successful fetch: sync API data into DynamoDB and upsert user emails.
   // After upsertUsers resolves, invalidate the users query so the owner dropdown refreshes.
   useEffect(() => {
     if (!query.data?.length) return;
 
-    syncFlagsToFirestore(PROJECT_ID, query.data).catch(err =>
-      console.error('Firestore flag sync failed:', err)
+    syncFlagsToDynamoDB(PROJECT_ID, query.data).catch(err =>
+      console.error('DynamoDB flag sync failed:', err)
     );
 
     const emails = query.data
@@ -52,7 +53,7 @@ export function useOptimizelyFlags() {
 
     upsertUsers(emails)
       .then(() => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.users }))
-      .catch(err => console.error('Firestore user upsert failed:', err));
+      .catch(err => console.error('DynamoDB user upsert failed:', err));
   }, [query.data, queryClient]);
 
   return query;
@@ -153,9 +154,13 @@ export function useUpdateTeams() {
 // ── Governance mutation ──────────────────────────────────────────────────────
 export function useUpdateGovernance() {
   const queryClient = useQueryClient();
+  const { data: session } = useSession();
   return useMutation({
     mutationFn: ({ flagKey, data }: { flagKey: string; data: Partial<GovernanceManualFields> }) =>
-      updateGovernanceData(PROJECT_ID, flagKey, data),
+      updateGovernanceData(PROJECT_ID, flagKey, {
+        ...data,
+        updatedByEmail: session?.user?.email ?? null,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.governance });
       // Refresh users in case a new owner email was introduced

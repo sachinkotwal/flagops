@@ -3,6 +3,7 @@ import './globals.css';
 import { QueryProvider } from '@/providers/query-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { AppSidebar } from '@/components/AppSidebar';
+import { SessionProvider } from 'next-auth/react';
 
 export const metadata: Metadata = {
   title: 'FlagOps — Optimizely Feature Flag Governance',
@@ -24,14 +25,16 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme')||'dark';if(t==='dark')document.documentElement.classList.add('dark');}catch(e){}})();` }} />
       </head>
       <body className="font-body antialiased bg-background text-foreground selection:bg-primary/30">
-        <ThemeProvider>
-          <QueryProvider>
-            <AppSidebar />
-            <div className="pl-56 min-h-screen">
-              {children}
-            </div>
-          </QueryProvider>
-        </ThemeProvider>
+        <SessionProvider>
+          <ThemeProvider>
+            <QueryProvider>
+              <AppSidebar />
+              <div className="pl-56 min-h-screen">
+                {children}
+              </div>
+            </QueryProvider>
+          </ThemeProvider>
+        </SessionProvider>
       </body>
     </html>
   );
